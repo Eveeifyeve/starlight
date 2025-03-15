@@ -110,10 +110,6 @@ const StarlightTailwindPlugin = () =>
 		{
 			// Starlight uses a `data-theme` attribute to power its dark mode.
 			darkMode: ['class', '[data-theme="dark"]'],
-			corePlugins: {
-				// Disable Tailwind’s default reset styles which conflict with Starlight.
-				preflight: false,
-			},
 		}
 	);
 
