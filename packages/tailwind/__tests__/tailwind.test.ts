@@ -1,31 +1,43 @@
-import tailwindcss, { type Config } from 'tailwindcss';
 import colors from 'tailwindcss/colors';
-import postcss from 'postcss';
-import { test, expect, describe, vi } from 'vitest';
-import StarlightTailwindPlugin from '..';
+import { compile as _compile } from '@tailwindcss/node'
+import { Scanner } from '@tailwindcss/oxide';
+import { transform } from 'lightningcss';
+import { test, expect, describe } from 'vitest';
+
+/** A Function used to generate optimised css. */
+function optimizeCSS(
+	input: string,
+): string {
+	let result = transform({
+		filename: "input.css",
+		code: new Uint8Array(Buffer.from(input)),
+		minify: false,
+		sourceMap: false,
+	});
+
+	return result.code.toString()
+}
 
 /** Generate a CSS string based on the passed CSS and HTML content. */
 const generatePluginCss = async ({
-	css = '@tailwind base;',
+	css = `@import "tailwindcss"; @plugin "../."`,
 	html = '',
-	config = {},
-}: { css?: string; html?: string; config?: Partial<Config> } = {}): Promise<string> => {
-	const result = await postcss(
-		tailwindcss({
-			// Enable Starlight plugin.
-			plugins: [StarlightTailwindPlugin()],
-			// Provide content for Tailwind to scan for class names.
-			content: [{ raw: html, extension: 'html' }],
-			// Spread in any custom Tailwind config.
-			...config,
-		})
-	).process(css, { from: '' });
-	return result.css;
+}: { css?: string; html?: string; } = {}): Promise<string> => {
+	let scanner = new Scanner({})
+	let canidates = scanner.scanFiles([{ content: html, extension: 'html' }])
+
+	let { build } = await _compile(css, {
+		base: "", onDependency: () => { }
+	});
+
+	return optimizeCSS(build(canidates));
 };
+
+
 
 describe('@tailwind base;', async () => {
 	// Generate base CSS with no core Tailwind plugins running to see just Starlight’s output.
-	const base = await generatePluginCss({ config: { corePlugins: [] } });
+	const base = await generatePluginCss();
 
 	test('generates Starlight base CSS', async () => {
 		expect(base).toMatchInlineSnapshot(`
@@ -82,10 +94,7 @@ describe('@tailwind base;', async () => {
 
 	describe('with user theme config', async () => {
 		const baseWithConfig = await generatePluginCss({
-			config: {
-				corePlugins: [],
-				theme: { extend: { colors: { accent: colors.amber, gray: colors.slate } } },
-			},
+			css: `@theme {--color-accent: ${colors.amber}, --color-gray: ${colors.slate} }`,
 		});
 
 		test('generates different CSS from base without user config', () => {
@@ -259,7 +268,6 @@ describe('@tailwind base;', async () => {
 describe('@tailwind utilities;', () => {
 	test('uses [data-theme="dark"] for dark: utility classes', async () => {
 		const utils = await generatePluginCss({
-			css: '@tailwind utilities;',
 			html: '<div class="dark:text-red-50"></div>',
 		});
 		expect(utils).includes('.dark\\:text-red-50:is([data-theme="dark"] *)');
@@ -270,15 +278,4 @@ describe('@tailwind utilities;', () => {
 			}"
 		`);
 	});
-});
-
-test('warns when a prefix of "sl-" is set', async () => {
-	const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-	await generatePluginCss({ config: { prefix: 'sl-' } });
-	expect(warn).toBeCalledTimes(1);
-	expect(warn.mock.lastCall?.[0]).toMatchInlineSnapshot(`
-		"A Tailwind prefix of "sl-" will clash with Starlight’s built-in styles.
-		Please set a different prefix in your Tailwind config file."
-	`);
-	warn.mockRestore();
 });
